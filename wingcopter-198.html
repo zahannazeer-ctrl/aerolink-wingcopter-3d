@@ -1,0 +1,507 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Wingcopter 198 — Interactive Viewer</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@300;400;500&family=Syne:wght@400;500;700&display=swap');
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg: #0b0e13;
+    --surface: #111620;
+    --surface2: #171d28;
+    --border: rgba(80,120,160,0.2);
+    --border-bright: rgba(80,140,200,0.4);
+    --accent: #e07830;
+    --accent2: #2a8fd0;
+    --text: #c8d8e8;
+    --text-dim: #607080;
+    --text-bright: #e8f0f8;
+    --mono: 'DM Mono', monospace;
+    --display: 'Syne', sans-serif;
+  }
+
+  html, body { width: 100%; height: 100%; overflow: hidden; background: var(--bg); color: var(--text); font-family: var(--mono); }
+
+  #app { display: flex; width: 100vw; height: 100vh; }
+
+  /* SIDEBAR */
+  #sidebar {
+    width: 260px; min-width: 260px;
+    background: var(--surface);
+    border-right: 0.5px solid var(--border);
+    display: flex; flex-direction: column;
+    overflow-y: auto; overflow-x: hidden;
+  }
+
+  #sidebar-header {
+    padding: 24px 20px 16px;
+    border-bottom: 0.5px solid var(--border);
+  }
+
+  .drone-model {
+    font-family: var(--display);
+    font-size: 22px; font-weight: 700;
+    color: var(--text-bright);
+    letter-spacing: -0.02em;
+    line-height: 1;
+  }
+  .drone-sub {
+    font-size: 10px; color: var(--accent);
+    letter-spacing: 0.15em; text-transform: uppercase;
+    margin-top: 6px;
+  }
+
+  .spec-section { padding: 16px 20px; border-bottom: 0.5px solid var(--border); }
+  .spec-section:last-child { border-bottom: none; }
+
+  .spec-section-label {
+    font-size: 9px; text-transform: uppercase;
+    letter-spacing: 0.18em; color: var(--text-dim);
+    margin-bottom: 12px;
+  }
+
+  .spec-row {
+    display: flex; justify-content: space-between; align-items: baseline;
+    padding: 5px 0;
+    border-bottom: 0.5px solid rgba(80,120,160,0.08);
+  }
+  .spec-row:last-child { border-bottom: none; }
+  .spec-k { font-size: 11px; color: var(--text-dim); }
+  .spec-v { font-size: 11px; font-weight: 500; color: var(--text-bright); }
+  .spec-v.accent { color: var(--accent); }
+  .spec-v.blue { color: var(--accent2); }
+
+  .highlight-box {
+    margin: 12px 20px;
+    padding: 10px 12px;
+    background: rgba(224,120,48,0.08);
+    border: 0.5px solid rgba(224,120,48,0.25);
+    border-radius: 4px;
+    font-size: 10px; color: var(--accent);
+    line-height: 1.6;
+  }
+
+  /* VIEWER */
+  #viewer {
+    flex: 1; position: relative;
+    background: var(--bg);
+    cursor: grab; overflow: hidden;
+  }
+  #viewer:active { cursor: grabbing; }
+  canvas { display: block; width: 100%; height: 100%; }
+
+  /* HUD overlays */
+  #top-hud {
+    position: absolute; top: 0; left: 0; right: 0;
+    padding: 16px 20px;
+    display: flex; justify-content: space-between; align-items: flex-start;
+    pointer-events: none;
+  }
+  .hud-tag {
+    font-size: 9px; letter-spacing: 0.18em; text-transform: uppercase;
+    color: var(--text-dim);
+  }
+  .hud-status {
+    display: flex; gap: 16px; align-items: center;
+  }
+  .hud-dot {
+    width: 6px; height: 6px; border-radius: 50%;
+    background: #2aaa60; animation: pulse 2s infinite;
+  }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
+  .hud-live { font-size: 9px; letter-spacing: 0.12em; color: #2aaa60; }
+
+  #hint-bar {
+    position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%);
+    font-size: 10px; color: var(--text-dim); letter-spacing: 0.1em;
+    pointer-events: none; text-align: center;
+    background: rgba(11,14,19,0.7); padding: 6px 14px; border-radius: 20px;
+    border: 0.5px solid var(--border);
+  }
+
+  #hovercard {
+    position: absolute; bottom: 60px; left: 20px;
+    background: var(--surface2);
+    border: 0.5px solid var(--border-bright);
+    border-radius: 6px; padding: 12px 16px;
+    font-size: 11px; line-height: 1.7;
+    max-width: 200px; display: none;
+    pointer-events: none;
+  }
+  #hovercard .hc-title {
+    font-family: var(--display); font-size: 13px; font-weight: 500;
+    color: var(--accent); margin-bottom: 6px;
+  }
+  #hovercard .hc-line { color: var(--text-dim); }
+  #hovercard .hc-line span { color: var(--text); margin-left: 4px; }
+
+  /* Crosshair corner decorations */
+  .corner { position: absolute; width: 16px; height: 16px; pointer-events: none; }
+  .corner.tl { top: 12px; left: 12px; border-top: 1px solid var(--border-bright); border-left: 1px solid var(--border-bright); }
+  .corner.tr { top: 12px; right: 12px; border-top: 1px solid var(--border-bright); border-right: 1px solid var(--border-bright); }
+  .corner.bl { bottom: 12px; left: 12px; border-bottom: 1px solid var(--border-bright); border-left: 1px solid var(--border-bright); }
+  .corner.br { bottom: 12px; right: 12px; border-bottom: 1px solid var(--border-bright); border-right: 1px solid var(--border-bright); }
+
+  #rotor-readout {
+    position: absolute; top: 50px; right: 20px;
+    font-size: 9px; color: var(--text-dim);
+    letter-spacing: 0.1em; text-align: right;
+    pointer-events: none; line-height: 2;
+  }
+  .rotor-bar-wrap { display: flex; align-items: center; gap: 8px; justify-content: flex-end; }
+  .rotor-bar { width: 48px; height: 2px; background: rgba(80,120,160,0.2); border-radius: 1px; overflow: hidden; }
+  .rotor-fill { height: 100%; background: var(--accent2); border-radius: 1px; transition: width 0.1s; }
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="sidebar">
+    <div id="sidebar-header">
+      <div class="drone-model">Wingcopter 198</div>
+      <div class="drone-sub">eVTOL Delivery Drone</div>
+    </div>
+
+    <div class="highlight-box">World's first triple-drop delivery drone — launched April 2021</div>
+
+    <div class="spec-section">
+      <div class="spec-section-label">Dimensions</div>
+      <div class="spec-row"><span class="spec-k">Wingspan</span><span class="spec-v accent">198 cm</span></div>
+      <div class="spec-row"><span class="spec-k">Length</span><span class="spec-v">152 cm</span></div>
+      <div class="spec-row"><span class="spec-k">Height</span><span class="spec-v">65 cm</span></div>
+    </div>
+
+    <div class="spec-section">
+      <div class="spec-section-label">Weight</div>
+      <div class="spec-row"><span class="spec-k">Empty</span><span class="spec-v">10 kg</span></div>
+      <div class="spec-row"><span class="spec-k">With batteries</span><span class="spec-v">20 kg</span></div>
+      <div class="spec-row"><span class="spec-k">Max MTOW</span><span class="spec-v accent">25 kg</span></div>
+      <div class="spec-row"><span class="spec-k">Max payload</span><span class="spec-v">5 kg</span></div>
+    </div>
+
+    <div class="spec-section">
+      <div class="spec-section-label">Performance</div>
+      <div class="spec-row"><span class="spec-k">Top speed</span><span class="spec-v accent">150 km/h</span></div>
+      <div class="spec-row"><span class="spec-k">Cruise speed</span><span class="spec-v">90 km/h</span></div>
+      <div class="spec-row"><span class="spec-k">Max range</span><span class="spec-v blue">110 km</span></div>
+      <div class="spec-row"><span class="spec-k">Range (6 kg)</span><span class="spec-v">75 km</span></div>
+    </div>
+
+    <div class="spec-section">
+      <div class="spec-section-label">Propulsion</div>
+      <div class="spec-row"><span class="spec-k">Total motors</span><span class="spec-v accent">8×</span></div>
+      <div class="spec-row"><span class="spec-k">Tilt-rotors</span><span class="spec-v">4× inner</span></div>
+      <div class="spec-row"><span class="spec-k">Lift-only</span><span class="spec-v blue">4× outer</span></div>
+      <div class="spec-row"><span class="spec-k">Batteries</span><span class="spec-v">2× Li-Ion</span></div>
+      <div class="spec-row"><span class="spec-k">Battery cap.</span><span class="spec-v">814 Wh each</span></div>
+    </div>
+
+    <div class="spec-section">
+      <div class="spec-section-label">Avionics</div>
+      <div class="spec-row"><span class="spec-k">Flight ctrl</span><span class="spec-v">Dual redundant</span></div>
+      <div class="spec-row"><span class="spec-k">IMUs</span><span class="spec-v">6×</span></div>
+      <div class="spec-row"><span class="spec-k">Barometers</span><span class="spec-v">2×</span></div>
+      <div class="spec-row"><span class="spec-k">GNSS</span><span class="spec-v">Dual antenna</span></div>
+      <div class="spec-row"><span class="spec-k">Airspeed</span><span class="spec-v">2× rainproof</span></div>
+    </div>
+
+    <div class="spec-section">
+      <div class="spec-section-label">Delivery</div>
+      <div class="spec-row"><span class="spec-k">Drops / flight</span><span class="spec-v accent">3 packages</span></div>
+      <div class="spec-row"><span class="spec-k">Drop method</span><span class="spec-v">Auto winch</span></div>
+      <div class="spec-row"><span class="spec-k">Flight mode</span><span class="spec-v blue">BVLOS</span></div>
+      <div class="spec-row"><span class="spec-k">Fleet / operator</span><span class="spec-v">Up to 10</span></div>
+    </div>
+
+    <div class="spec-section">
+      <div class="spec-section-label">Awareness</div>
+      <div class="spec-row"><span class="spec-k">ADS-B</span><span class="spec-v">Yes</span></div>
+      <div class="spec-row"><span class="spec-k">FLARM</span><span class="spec-v">Yes</span></div>
+      <div class="spec-row"><span class="spec-k">Remote ID</span><span class="spec-v">Yes</span></div>
+      <div class="spec-row"><span class="spec-k">Obstacle avoid</span><span class="spec-v blue">AI vision</span></div>
+    </div>
+  </div>
+
+  <div id="viewer">
+    <div class="corner tl"></div>
+    <div class="corner tr"></div>
+    <div class="corner bl"></div>
+    <div class="corner br"></div>
+
+    <div id="top-hud">
+      <div class="hud-tag">3D Model — Wingcopter 198 · Delivery Variant</div>
+      <div class="hud-status">
+        <div class="hud-dot"></div>
+        <span class="hud-live">Live render</span>
+      </div>
+    </div>
+
+    <div id="rotor-readout">
+      <div>Rotor RPM</div>
+      <div class="rotor-bar-wrap"><span>M1–M4</span><div class="rotor-bar"><div class="rotor-fill" id="bar1" style="width:85%"></div></div></div>
+      <div class="rotor-bar-wrap"><span>M5–M8</span><div class="rotor-bar"><div class="rotor-fill" id="bar2" style="width:85%"></div></div></div>
+    </div>
+
+    <canvas id="c"></canvas>
+
+    <div id="hovercard">
+      <div class="hc-title" id="hc-title"></div>
+      <div id="hc-lines"></div>
+    </div>
+
+    <div id="hint-bar">drag to rotate · hover parts to inspect</div>
+  </div>
+</div>
+
+<script>
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+const viewer = document.getElementById('viewer');
+const hc = document.getElementById('hovercard');
+const hcTitle = document.getElementById('hc-title');
+const hcLines = document.getElementById('hc-lines');
+
+let rotX = 0.32, rotY = 0.6;
+let targetRotX = rotX, targetRotY = rotY;
+let dragging = false, lastX, lastY;
+let spinAngle = 0;
+let hovered = null;
+let autoRotate = true;
+
+function resize() {
+  canvas.width = viewer.clientWidth;
+  canvas.height = viewer.clientHeight;
+}
+resize();
+window.addEventListener('resize', () => { resize(); });
+
+viewer.addEventListener('mousedown', e => {
+  dragging = true; lastX = e.clientX; lastY = e.clientY;
+  autoRotate = false;
+});
+window.addEventListener('mouseup', () => { dragging = false; });
+window.addEventListener('mousemove', e => {
+  if (dragging) {
+    targetRotY += (e.clientX - lastX) * 0.008;
+    targetRotX += (e.clientY - lastY) * 0.006;
+    targetRotX = Math.max(-0.85, Math.min(0.85, targetRotX));
+    lastX = e.clientX; lastY = e.clientY;
+  }
+  const rect = viewer.getBoundingClientRect();
+  checkHover(e.clientX - rect.left, e.clientY - rect.top);
+});
+viewer.addEventListener('touchstart', e => {
+  dragging = true; lastX = e.touches[0].clientX; lastY = e.touches[0].clientY; autoRotate = false;
+});
+viewer.addEventListener('touchend', () => dragging = false);
+viewer.addEventListener('touchmove', e => {
+  if (dragging) {
+    targetRotY += (e.touches[0].clientX - lastX) * 0.008;
+    targetRotX += (e.touches[0].clientY - lastY) * 0.006;
+    targetRotX = Math.max(-0.85, Math.min(0.85, targetRotX));
+    lastX = e.touches[0].clientX; lastY = e.touches[0].clientY;
+  }
+  e.preventDefault();
+}, { passive: false });
+
+const partDefs = {
+  fuselage:     { title: 'Fuselage', specs: [['Material','Carbon composite'],['Dims','198×152×65 cm'],['Contains','Avionics + batteries']] },
+  wing:         { title: 'Fixed wing', specs: [['Profile','High-efficiency airfoil'],['Winglets','Extended lift surface'],['Purpose','BVLOS cruise efficiency']] },
+  tiltRL:       { title: 'Tilt-rotor (fwd-left)', specs: [['Tilt range','0° – 90°'],['Function','Cruise thrust'],['Redundancy','Part of 4× system']] },
+  tiltRR:       { title: 'Tilt-rotor (fwd-right)', specs: [['Tilt range','0° – 90°'],['Function','Cruise thrust'],['Wind comp.','Auto tilt-rotor response']] },
+  liftOL:       { title: 'Lift rotor (outer-left)', specs: [['Type','Fixed-axis VTOL'],['Cruise','Locks aerodynamically'],['Pair','4× outer lift rotors']] },
+  liftOR:       { title: 'Lift rotor (outer-right)', specs: [['Type','Fixed-axis VTOL'],['Cruise','Locks aerodynamically'],['Pair','4× outer lift rotors']] },
+  payload:      { title: 'Triple-drop bay', specs: [['Capacity','3 packages'],['Max weight','5 kg total'],['Mechanism','Automated winch-drop']] },
+  tail:         { title: 'Rear tilt-rotors', specs: [['Props','Fold back in cruise'],['Redundancy','Dual motor pair'],['ESCs','Redundant × 8 total']] },
+};
+
+let hitZones = [];
+
+function project(x, y, z, cx2d, cy2d, scale) {
+  const cosY = Math.cos(rotY), sinY = Math.sin(rotY);
+  const cosX = Math.cos(rotX), sinX = Math.sin(rotX);
+  let rx = x * cosY - z * sinY;
+  let rz = x * sinY + z * cosY;
+  let ry = y * cosX - rz * sinX;
+  let rz2 = y * sinX + rz * cosX;
+  const fov = 420;
+  const d = fov / (fov + rz2 + 200);
+  return { sx: cx2d + rx * scale * d, sy: cy2d + ry * scale * d, depth: rz2 };
+}
+
+function drawPoly(label, pts, fill, stroke, alpha) {
+  if (!pts.length) return;
+  ctx.beginPath();
+  ctx.moveTo(pts[0].sx, pts[0].sy);
+  for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i].sx, pts[i].sy);
+  ctx.closePath();
+  ctx.globalAlpha = alpha ?? 1;
+  ctx.fillStyle = hovered === label ? brighten(fill) : fill;
+  ctx.fill();
+  ctx.strokeStyle = stroke;
+  ctx.lineWidth = 0.7;
+  ctx.stroke();
+  ctx.globalAlpha = 1;
+  if (pts.length >= 3) {
+    let mnX=Infinity,mxX=-Infinity,mnY=Infinity,mxY=-Infinity;
+    pts.forEach(p => { mnX=Math.min(mnX,p.sx);mxX=Math.max(mxX,p.sx);mnY=Math.min(mnY,p.sy);mxY=Math.max(mxY,p.sy); });
+    hitZones.push({ label, mnX, mxX, mnY, mxY });
+  }
+}
+
+function brighten(hex) {
+  if (hex.startsWith('rgba') || hex.startsWith('rgb')) return hex;
+  const r=parseInt(hex.slice(1,3),16), g=parseInt(hex.slice(3,5),16), b=parseInt(hex.slice(5,7),16);
+  return `rgb(${Math.min(255,r+55)},${Math.min(255,g+55)},${Math.min(255,b+50)})`;
+}
+
+function drawBox(label, x,y,z, w,h,d, fill,stroke, cx2d,cy2d,scale) {
+  const hw=w/2,hh=h/2,hd=d/2;
+  const raw = [[-hw,-hh,-hd],[hw,-hh,-hd],[hw,hh,-hd],[-hw,hh,-hd],[-hw,-hh,hd],[hw,-hh,hd],[hw,hh,hd],[-hw,hh,hd]];
+  const pts = raw.map(([cx,cy,cz]) => project(x+cx, y+cy, z+cz, cx2d,cy2d,scale));
+  const faces = [[0,1,2,3],[4,5,6,7],[0,1,5,4],[2,3,7,6],[1,2,6,5],[0,3,7,4]];
+  faces.sort((a,b) => {
+    const da = a.reduce((s,i)=>s+pts[i].depth,0);
+    const db = b.reduce((s,i)=>s+pts[i].depth,0);
+    return db - da;
+  });
+  faces.forEach(f => drawPoly(label, f.map(i=>pts[i]), fill, stroke));
+}
+
+function drawDisc(label, cx3,cy3,cz3, r, fill, stroke, cx2d,cy2d,scale) {
+  const steps = 28;
+  const pts = [];
+  for (let i=0;i<steps;i++) {
+    const a = (i/steps)*Math.PI*2;
+    pts.push(project(cx3+Math.cos(a)*r, cy3, cz3+Math.sin(a)*r, cx2d,cy2d,scale));
+  }
+  drawPoly(label, pts, fill, stroke, 0.18);
+}
+
+function checkHover(mx, my) {
+  let found = null;
+  for (let i=hitZones.length-1;i>=0;i--) {
+    const z=hitZones[i];
+    if (mx>=z.mnX&&mx<=z.mxX&&my>=z.mnY&&my<=z.mxY) { found=z.label; break; }
+  }
+  hovered = found;
+  if (found && partDefs[found]) {
+    hcTitle.textContent = partDefs[found].title;
+    hcLines.innerHTML = partDefs[found].specs.map(([k,v]) =>
+      `<div class="hc-line">${k}<span>${v}</span></div>`).join('');
+    hc.style.display = 'block';
+  } else {
+    hc.style.display = 'none';
+  }
+}
+
+let frame = 0;
+
+function draw() {
+  const W = canvas.width, H = canvas.height;
+  ctx.clearRect(0,0,W,H);
+  ctx.fillStyle = '#0b0e13';
+  ctx.fillRect(0,0,W,H);
+
+  const cx2d = W * 0.5, cy2d = H * 0.5;
+  const scale = Math.min(W,H) * 0.42;
+
+  rotX += (targetRotX - rotX) * 0.08;
+  rotY += (targetRotY - rotY) * 0.08;
+  if (autoRotate) targetRotY += 0.004;
+
+  spinAngle += 0.05;
+  frame++;
+
+  const rpm = 0.75 + Math.sin(frame*0.03)*0.12;
+  document.getElementById('bar1').style.width = Math.round(rpm*100) + '%';
+  document.getElementById('bar2').style.width = Math.round((rpm-0.04)*100) + '%';
+
+  hitZones = [];
+
+  ctx.strokeStyle = 'rgba(40,80,120,0.15)'; ctx.lineWidth = 0.5;
+  for (let i=-5;i<=5;i++) {
+    const a=project(-2,0.58,i*0.25,cx2d,cy2d,scale);
+    const b=project(2,0.58,i*0.25,cx2d,cy2d,scale);
+    ctx.beginPath();ctx.moveTo(a.sx,a.sy);ctx.lineTo(b.sx,b.sy);ctx.stroke();
+    const c=project(i*0.4,0.58,-1.25,cx2d,cy2d,scale);
+    const d2=project(i*0.4,0.58,1.25,cx2d,cy2d,scale);
+    ctx.beginPath();ctx.moveTo(c.sx,c.sy);ctx.lineTo(d2.sx,d2.sy);ctx.stroke();
+  }
+
+  const BODY   = '#2a3848'; const BODYS  = '#3a5870';
+  const WING   = '#1e2e3e'; const WINGS  = '#2e4860';
+  const ARM    = '#192430'; const ARMS   = '#28404e';
+  const TILT   = '#7a3810'; const TILTS  = '#c06020';
+  const LIFT   = '#0e4870'; const LIFTS  = '#1880c0';
+  const PAY    = '#201830'; const PAYS   = '#4030a0';
+
+  drawBox('fuselage', 0,0,0, 0.2,0.1,0.7, BODY,BODYS, cx2d,cy2d,scale);
+  drawBox('wing', 0,-0.025,0, 1.85,0.055,0.16, WING,WINGS, cx2d,cy2d,scale);
+  drawBox('wing', -0.88,-0.025,0, 0.13,0.065,0.04, WING,WINGS, cx2d,cy2d,scale);
+  drawBox('wing', 0.88,-0.025,0, 0.13,0.065,0.04, WING,WINGS, cx2d,cy2d,scale);
+  drawBox('payload', 0,0.1,0.12, 0.16,0.11,0.26, PAY,PAYS, cx2d,cy2d,scale);
+
+  const rotorConfig = [
+    { x:-0.52, z:-0.5, label:'liftOL',  col:LIFT, scol:LIFTS, isTilt:false },
+    { x: 0.52, z:-0.5, label:'liftOR',  col:LIFT, scol:LIFTS, isTilt:false },
+    { x:-0.52, z: 0.5, label:'tiltRL',  col:TILT, scol:TILTS, isTilt:true },
+    { x: 0.52, z: 0.5, label:'tiltRR',  col:TILT, scol:TILTS, isTilt:true },
+  ];
+
+  rotorConfig.forEach(rc => {
+    drawBox(rc.label, rc.x*0.78, 0, rc.z*0.5, 0.055,0.055,0.055, ARM,ARMS, cx2d,cy2d,scale);
+    const sp = spinAngle * (rc.isTilt ? 1.5 : 1.0);
+    const R = 0.21;
+    for (let b=0;b<2;b++) {
+      const a = sp + (b/2)*Math.PI*2;
+      const bx = rc.x*0.78 + Math.cos(a)*R;
+      const bz = rc.z*0.5  + Math.sin(a)*R;
+      const perp = [
+        rc.x*0.78 + Math.cos(a+Math.PI/2)*0.038,
+        rc.z*0.5  + Math.sin(a+Math.PI/2)*0.038
+      ];
+      const p0 = project(rc.x*0.78, -0.035, rc.z*0.5, cx2d,cy2d,scale);
+      const p1 = project(perp[0],   -0.035, perp[1],  cx2d,cy2d,scale);
+      const p2 = project(bx,        -0.035, bz,       cx2d,cy2d,scale);
+      drawPoly(rc.label, [p0,p1,p2], rc.col, rc.scol, 0.92);
+    }
+    drawDisc(rc.label, rc.x*0.78, -0.035, rc.z*0.5, R,
+      rc.isTilt ? 'rgba(200,100,30,0.3)' : 'rgba(30,130,200,0.3)',
+      rc.isTilt ? TILTS : LIFTS, cx2d,cy2d,scale);
+  });
+
+  const rearPairs = [
+    { x:-0.14, z:-0.72, label:'tail' },
+    { x: 0.14, z:-0.72, label:'tail' },
+  ];
+  rearPairs.forEach(rp => {
+    drawBox('tail', rp.x, 0, rp.z, 0.05,0.05,0.05, ARM,ARMS, cx2d,cy2d,scale);
+    for (let b=0;b<2;b++) {
+      const a = spinAngle + (b/2)*Math.PI*2;
+      const bx = rp.x + Math.cos(a)*0.15;
+      const bz = rp.z + Math.sin(a)*0.15;
+      const perp = [rp.x+Math.cos(a+Math.PI/2)*0.03, rp.z+Math.sin(a+Math.PI/2)*0.03];
+      const p0 = project(rp.x,    -0.035, rp.z,    cx2d,cy2d,scale);
+      const p1 = project(perp[0], -0.035, perp[1], cx2d,cy2d,scale);
+      const p2 = project(bx,      -0.035, bz,      cx2d,cy2d,scale);
+      drawPoly('tail', [p0,p1,p2], LIFT, LIFTS, 0.88);
+    }
+  });
+
+  ctx.globalAlpha = 0.18;
+  ctx.fillStyle = '#102030';
+  ctx.beginPath();
+  ctx.ellipse(cx2d + scale*0.03*Math.sin(rotY), cy2d + scale*0.56, scale*0.38, scale*0.042, 0, 0, Math.PI*2);
+  ctx.fill();
+  ctx.globalAlpha = 1;
+}
+
+function loop() { draw(); requestAnimationFrame(loop); }
+loop();
+</script>
+</body>
+</html>
